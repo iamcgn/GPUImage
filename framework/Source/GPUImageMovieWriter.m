@@ -484,7 +484,7 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
     }
     
     // Render the frame with swizzled colors, so that they can be uploaded quickly as BGRA frames
-    [GPUImageOpenGLESContext useImageProcessingContext];
+    //[GPUImageOpenGLESContext useImageProcessingContext];
     [self renderAtInternalSize];
 
     CVPixelBufferRef pixel_buffer = NULL;
