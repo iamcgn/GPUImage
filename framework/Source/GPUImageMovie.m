@@ -207,11 +207,15 @@
                 previousActualFrameTime = CFAbsoluteTimeGetCurrent();
             }
 
+          if ([[UIApplication sharedApplication] applicationState] == UIApplicationStateActive) {
             __unsafe_unretained GPUImageMovie *weakSelf = self;
             runSynchronouslyOnVideoProcessingQueue(^{
                 [weakSelf processMovieFrame:sampleBufferRef];
             });
-            
+          } else {
+            [reader cancelReading];
+          }
+          
             CMSampleBufferInvalidate(sampleBufferRef);
             CFRelease(sampleBufferRef);
         }

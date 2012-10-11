@@ -133,6 +133,10 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
 - (void)dealloc;
 {
     [self destroyDataFBO];
+  [self setVideoInputReadyCallback:nil];
+  [self setAudioInputReadyCallback:nil];
+  if ([assetWriter status] == AVAssetWriterStatusWriting)
+    [assetWriter cancelWriting];
 
     if (frameData != NULL)
     {
