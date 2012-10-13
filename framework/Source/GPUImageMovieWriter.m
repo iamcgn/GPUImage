@@ -515,7 +515,7 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
     }
         
 //    if(![assetWriterPixelBufferInput appendPixelBuffer:pixel_buffer withPresentationTime:CMTimeSubtract(frameTime, startTime)]) 
-    if(![assetWriterPixelBufferInput appendPixelBuffer:pixel_buffer withPresentationTime:frameTime]) 
+    if(assetWriter.status == AVAssetWriterStatusWriting && ![assetWriterPixelBufferInput appendPixelBuffer:pixel_buffer withPresentationTime:frameTime])
     {
         NSLog(@"Problem appending pixel buffer at time: %lld", frameTime.value);
     } 
