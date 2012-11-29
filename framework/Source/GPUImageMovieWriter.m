@@ -257,11 +257,9 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
     }
 
     isRecording = NO;
-    runOnMainQueueWithoutDeadlocking(^{
-        [assetWriterVideoInput markAsFinished];
-        [assetWriterAudioInput markAsFinished];
-        [assetWriter finishWriting];
-    });
+    [assetWriterVideoInput markAsFinished];
+    [assetWriterAudioInput markAsFinished];
+    [assetWriter finishWriting];
 }
 
 - (void)processAudioBuffer:(CMSampleBufferRef)audioBuffer;
