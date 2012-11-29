@@ -577,6 +577,16 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
     return NO;
 }
 
+- (void)setTextureDelegate:(id<GPUImageTextureDelegate>)newTextureDelegate atIndex:(NSInteger)textureIndex;
+{
+    textureDelegate = newTextureDelegate;
+}
+
+- (void)conserveMemoryForNextFrame;
+{
+    
+}
+
 #pragma mark -
 #pragma mark Accessors
 
