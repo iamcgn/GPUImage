@@ -82,6 +82,7 @@
     if ([GPUImageOpenGLESContext supportsFastTextureUpload])
     {
         CFRelease(coreVideoTextureCache);
+      coreVideoTextureCache = NULL;
     }
 }
 #pragma mark -
@@ -258,7 +259,10 @@
 {
 //    CMTimeGetSeconds
 //    CMTimeSubtract
-    
+    if ([GPUImageOpenGLESContext supportsFastTextureUpload] && coreVideoTextureCache == NULL) {
+      return;
+    }
+  
     CMTime currentSampleTime = CMSampleBufferGetOutputPresentationTimeStamp(movieSampleBuffer);
     CVImageBufferRef movieFrame = CMSampleBufferGetImageBuffer(movieSampleBuffer);
 

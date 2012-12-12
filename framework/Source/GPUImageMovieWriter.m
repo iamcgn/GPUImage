@@ -249,7 +249,22 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
 	[self startRecording];
 }
 
-- (void)finishRecording;
+- (void)finishRecordingBlockUntilComplete
+{
+    if (assetWriter.status == AVAssetWriterStatusCompleted)
+    {
+        return;
+    }
+    
+    isRecording = NO;
+    runOnMainQueueWithoutDeadlocking(^{
+        [assetWriterVideoInput markAsFinished];
+        [assetWriterAudioInput markAsFinished];
+        [assetWriter finishWriting];
+    });
+}
+
+- (void)finishRecording
 {
     if (assetWriter.status == AVAssetWriterStatusCompleted)
     {
