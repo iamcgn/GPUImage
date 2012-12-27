@@ -274,7 +274,21 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
     isRecording = NO;
     [assetWriterVideoInput markAsFinished];
     [assetWriterAudioInput markAsFinished];
-    [assetWriter finishWriting];
+    [assetWriter finishWritingWithCompletionHandler:^{
+        if (! assetWriter.error) {
+            if (completionBlock) {
+                runOnMainQueueWithoutDeadlocking(^{
+                   completionBlock();
+                });
+            }
+        } else {
+            if (failureBlock) {
+                runOnMainQueueWithoutDeadlocking(^{
+                    failureBlock(assetWriter.error);
+                });
+            }
+        }
+    }];
 }
 
 - (void)processAudioBuffer:(CMSampleBufferRef)audioBuffer;
@@ -572,9 +586,9 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
 
 - (void)endProcessing 
 {
-    if (completionBlock) 
+    if (isRecording)
     {
-        completionBlock();
+        [self finishRecording];
     }
     else 
     {
