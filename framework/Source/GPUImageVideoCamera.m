@@ -4,7 +4,77 @@
 #pragma mark -
 #pragma mark Private methods and instance variables
 
-@interface GPUImageVideoCamera () 
+//The following functions are modified from Apple's VideoSnake sample code in the WWDC 2012 Session 520.
+//Source avaialble for download from developer.apple.com/videos/wwdc/2012/
+
+#define BYTES_PER_PIXEL 4
+#define POOL_MAX_BUFFER_COUNT 6
+
+static CVPixelBufferPoolRef CreatePixelBufferPool( int32_t width, int32_t height, OSType pixelFormat, int32_t maxBuferCount )
+{
+	CVPixelBufferPoolRef outputPool = NULL;
+	
+  CFMutableDictionaryRef sourcePixelBufferOptions = CFDictionaryCreateMutable( kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks );
+  CFNumberRef number = CFNumberCreate( kCFAllocatorDefault, kCFNumberSInt32Type, &pixelFormat );
+  CFDictionaryAddValue( sourcePixelBufferOptions, kCVPixelBufferPixelFormatTypeKey, number );
+  CFRelease( number );
+  
+  number = CFNumberCreate( kCFAllocatorDefault, kCFNumberSInt32Type, &width );
+  CFDictionaryAddValue( sourcePixelBufferOptions, kCVPixelBufferWidthKey, number );
+  CFRelease( number );
+  
+  number = CFNumberCreate( kCFAllocatorDefault, kCFNumberSInt32Type, &height );
+  CFDictionaryAddValue( sourcePixelBufferOptions, kCVPixelBufferHeightKey, number );
+  CFRelease( number );
+  
+  CFDictionaryAddValue( sourcePixelBufferOptions, kCVPixelFormatOpenGLESCompatibility, kCFBooleanTrue );
+  
+  CFDictionaryRef ioSurfaceProps = CFDictionaryCreate( kCFAllocatorDefault, NULL, NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks );
+  if (ioSurfaceProps) {
+    CFDictionaryAddValue( sourcePixelBufferOptions, kCVPixelBufferIOSurfacePropertiesKey, ioSurfaceProps );
+    CFRelease(ioSurfaceProps);
+  }
+  
+	number = CFNumberCreate( kCFAllocatorDefault, kCFNumberSInt32Type, &maxBuferCount );
+	CFDictionaryRef pixelBufferPoolOptions = CFDictionaryCreate( kCFAllocatorDefault, (const void**)&kCVPixelBufferPoolMinimumBufferCountKey, (const void**)&number, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks );
+	CFRelease( number );
+	
+  CVPixelBufferPoolCreate( kCFAllocatorDefault, pixelBufferPoolOptions, sourcePixelBufferOptions, &outputPool );
+  
+  CFRelease( sourcePixelBufferOptions );
+	CFRelease( pixelBufferPoolOptions );
+	
+	return outputPool;
+}
+
+static CFDictionaryRef CreatePixelBufferPoolAuxAttributes( int32_t maxBufferCount )
+{
+	// CVPixelBufferPoolCreatePixelBufferWithAuxAttributes() will return kCVReturnWouldExceedAllocationThreshold if we have already vended the max number of buffers
+	NSDictionary *auxAttributes = [[NSDictionary alloc] initWithObjectsAndKeys:[NSNumber numberWithInt:maxBufferCount], (id)kCVPixelBufferPoolAllocationThresholdKey, nil];
+    CFDictionaryRef auxDict = (__bridge CFDictionaryRef)auxAttributes;
+    CFRetain(auxDict);
+    
+	return auxDict;
+}
+
+static void PreallocatePixelBuffersInPool( CVPixelBufferPoolRef pool, CFDictionaryRef auxAttributes )
+{
+	// Preallocate buffers in the pool, since this is for real-time display/capture
+	NSMutableArray *pixelBuffers = [[NSMutableArray alloc] init];
+	while ( 1 ) {
+		CVPixelBufferRef pixelBuffer = NULL;
+		OSStatus err = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes( kCFAllocatorDefault, pool, auxAttributes, &pixelBuffer );
+		
+		if ( err == kCVReturnWouldExceedAllocationThreshold )
+			break;
+		assert( err == noErr );
+		
+		[pixelBuffers addObject:(__bridge id)pixelBuffer];
+		CFRelease( pixelBuffer );
+	}
+}
+
+@interface GPUImageVideoCamera ()
 {
 	AVCaptureDeviceInput *audioInput;
 	AVCaptureVideoDataOutput *videoOutput;
@@ -17,6 +87,8 @@
 }
 
 - (void)updateOrientationSendToTargets;
+- (BOOL)supportsSourceFormatHint;
+- (void)setupSourceFormatHintWithSampleBuffer:(CMSampleBufferRef)sampleBuffer;
 
 @end
 
@@ -29,6 +101,7 @@
 @synthesize outputImageOrientation = _outputImageOrientation;
 @synthesize delegate = _delegate;
 @synthesize horizontallyMirrorFrontFacingCamera = _horizontallyMirrorFrontFacingCamera, horizontallyMirrorRearFacingCamera = _horizontallyMirrorRearFacingCamera;
+@synthesize videoFormatDescription = _videoFormatDescription;
 
 #pragma mark -
 #pragma mark Initialization and teardown
@@ -188,6 +261,12 @@
     if (frameRenderingSemaphore != NULL)
     {
         dispatch_release(frameRenderingSemaphore);
+    }
+    
+    if (_videoFormatDescription != NULL)
+    {
+        CFRelease(_videoFormatDescription);
+        _videoFormatDescription = NULL;
     }
 }
 
@@ -366,6 +445,29 @@
     return nil;
 }
 
+- (void)setupSourceFormatHintWithSampleBuffer:(CMSampleBufferRef)sampleBuffer
+{
+    CMFormatDescriptionRef formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer);
+    
+    CMVideoDimensions videoDimensions = CMVideoFormatDescriptionGetDimensions( formatDescription );
+    CVPixelBufferPoolRef _outputBufferPool = CreatePixelBufferPool( videoDimensions.width, videoDimensions.height, kCVPixelFormatType_32BGRA, POOL_MAX_BUFFER_COUNT );
+  
+    CFDictionaryRef _outputBufferPoolAuxAttributes = CreatePixelBufferPoolAuxAttributes( POOL_MAX_BUFFER_COUNT );
+    
+    PreallocatePixelBuffersInPool( _outputBufferPool, _outputBufferPoolAuxAttributes );
+    
+    CMFormatDescriptionRef outputFormatDescription = NULL;
+    CVPixelBufferRef testPixelBuffer = NULL;
+    CVPixelBufferPoolCreatePixelBufferWithAuxAttributes( kCFAllocatorDefault, _outputBufferPool, _outputBufferPoolAuxAttributes, &testPixelBuffer );
+    CMVideoFormatDescriptionCreateForImageBuffer( kCFAllocatorDefault, testPixelBuffer, &outputFormatDescription );
+    
+    _videoFormatDescription = outputFormatDescription; // used to tell the MovieRecorder what format we will be feeding it
+    
+    CFRelease( testPixelBuffer );
+    CFRelease( _outputBufferPool );
+    CFRelease( _outputBufferPoolAuxAttributes );
+}
+
 #define INITIALFRAMESTOIGNOREFORBENCHMARK 5
 
 - (void)processVideoSampleBuffer:(CMSampleBufferRef)sampleBuffer;
@@ -373,6 +475,10 @@
     if (capturePaused)
     {
         return;
+    }
+  
+    if ([self supportsSourceFormatHint] && ! self.videoFormatDescription) {
+        [self setupSourceFormatHintWithSampleBuffer:sampleBuffer];
     }
     
     CFAbsoluteTime startTime = CFAbsoluteTimeGetCurrent();
@@ -671,6 +777,11 @@
 {
     _horizontallyMirrorRearFacingCamera = newValue;
     [self updateOrientationSendToTargets];
+}
+
+- (BOOL)supportsSourceFormatHint
+{
+  return [AVAssetWriterInput instancesRespondToSelector:@selector(initWithMediaType:outputSettings:sourceFormatHint:)];
 }
 
 @end

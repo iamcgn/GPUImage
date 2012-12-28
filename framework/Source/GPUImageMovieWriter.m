@@ -69,11 +69,16 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
 
 - (id)initWithMovieURL:(NSURL *)newMovieURL size:(CGSize)newSize fileType:(NSString *)newFileType outputSettings:(NSMutableDictionary *)outputSettings;
 {
+    return [self initWithMovieURL:newMovieURL size:newSize fileType:newFileType outputSettings:outputSettings sourceFormatHint:NULL];
+}
+
+- (id)initWithMovieURL:(NSURL *)newMovieURL size:(CGSize)newSize fileType:(NSString *)newFileType outputSettings:(NSMutableDictionary *)outputSettings sourceFormatHint:(CMFormatDescriptionRef)formatHint
+{
     if (!(self = [super init]))
     {
 		return nil;
     }
-
+    
     self.enabled = YES;
     
     videoSize = newSize;
@@ -83,7 +88,7 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
     _encodingLiveVideo = YES;
     previousFrameTime = kCMTimeNegativeInfinity;
     inputRotation = kGPUImageNoRotation;
-
+    
     runSynchronouslyOnVideoProcessingQueue(^{
         [GPUImageOpenGLESContext useImageProcessingContext];
         
@@ -112,7 +117,7 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
                 colorSwizzlingProgram = nil;
                 NSAssert(NO, @"Filter shader link failed");
             }
-        }        
+        }
         
         colorSwizzlingPositionAttribute = [colorSwizzlingProgram attributeIndex:@"position"];
         colorSwizzlingTextureCoordinateAttribute = [colorSwizzlingProgram attributeIndex:@"inputTextureCoordinate"];
@@ -124,19 +129,19 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
         glEnableVertexAttribArray(colorSwizzlingPositionAttribute);
         glEnableVertexAttribArray(colorSwizzlingTextureCoordinateAttribute);
     });
-        
-    [self initializeMovieWithOutputSettings:outputSettings];
-
+    
+    [self initializeMovieWithOutputSettings:outputSettings sourceFormatHint:formatHint];
+    
     return self;
 }
 
 - (void)dealloc;
 {
     [self destroyDataFBO];
-  [self setVideoInputReadyCallback:nil];
-  [self setAudioInputReadyCallback:nil];
-  if ([assetWriter status] == AVAssetWriterStatusWriting)
-    [assetWriter cancelWriting];
+    [self setVideoInputReadyCallback:nil];
+    [self setAudioInputReadyCallback:nil];
+    if ([assetWriter status] == AVAssetWriterStatusWriting)
+        [assetWriter cancelWriting];
 
     if (frameData != NULL)
     {
@@ -147,24 +152,24 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
 #pragma mark -
 #pragma mark Movie recording
 
-- (void)initializeMovieWithOutputSettings:(NSMutableDictionary *)outputSettings;
+- (void)initializeMovieWithOutputSettings:(NSMutableDictionary *)outputSettings sourceFormatHint:(CMFormatDescriptionRef)sourceHint
 {
     isRecording = NO;
     
     self.enabled = YES;
     frameData = (GLubyte *) malloc((int)videoSize.width * (int)videoSize.height * 4);
-
-//    frameData = (GLubyte *) calloc(videoSize.width * videoSize.height * 4, sizeof(GLubyte));
+    
+    //    frameData = (GLubyte *) calloc(videoSize.width * videoSize.height * 4, sizeof(GLubyte));
     NSError *error = nil;
     assetWriter = [[AVAssetWriter alloc] initWithURL:movieURL fileType:fileType error:&error];
     if (error != nil)
     {
         NSLog(@"Error: %@", error);
-        if (failureBlock) 
+        if (failureBlock)
         {
             failureBlock(error);
         }
-        else 
+        else
         {
             if(self.delegate && [self.delegate respondsToSelector:@selector(movieRecordingFailedWithError:)])
             {
@@ -177,7 +182,7 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
     assetWriter.movieFragmentInterval = CMTimeMakeWithSeconds(1.0, 1000);
     
     // use default output settings if none specified
-    if (outputSettings == nil) 
+    if (outputSettings == nil)
     {
         outputSettings = [[NSMutableDictionary alloc] init];
         [outputSettings setObject:AVVideoCodecH264 forKey:AVVideoCodecKey];
@@ -185,7 +190,7 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
         [outputSettings setObject:[NSNumber numberWithInt:videoSize.height] forKey:AVVideoHeightKey];
     }
     // custom output settings specified
-    else 
+    else
     {
 		NSString *videoCodec = [outputSettings objectForKey:AVVideoCodecKey];
 		NSNumber *width = [outputSettings objectForKey:AVVideoWidthKey];
@@ -195,29 +200,37 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
     }
     
     /*
-    NSDictionary *videoCleanApertureSettings = [NSDictionary dictionaryWithObjectsAndKeys:
-                                                [NSNumber numberWithInt:videoSize.width], AVVideoCleanApertureWidthKey,
-                                                [NSNumber numberWithInt:videoSize.height], AVVideoCleanApertureHeightKey,
-                                                [NSNumber numberWithInt:0], AVVideoCleanApertureHorizontalOffsetKey,
-                                                [NSNumber numberWithInt:0], AVVideoCleanApertureVerticalOffsetKey,
-                                                nil];
-
-    NSDictionary *videoAspectRatioSettings = [NSDictionary dictionaryWithObjectsAndKeys:
-                                              [NSNumber numberWithInt:3], AVVideoPixelAspectRatioHorizontalSpacingKey,
-                                              [NSNumber numberWithInt:3], AVVideoPixelAspectRatioVerticalSpacingKey,
-                                              nil];
-
-    NSMutableDictionary * compressionProperties = [[NSMutableDictionary alloc] init];
-    [compressionProperties setObject:videoCleanApertureSettings forKey:AVVideoCleanApertureKey];
-    [compressionProperties setObject:videoAspectRatioSettings forKey:AVVideoPixelAspectRatioKey];
-    [compressionProperties setObject:[NSNumber numberWithInt: 2000000] forKey:AVVideoAverageBitRateKey];
-    [compressionProperties setObject:[NSNumber numberWithInt: 16] forKey:AVVideoMaxKeyFrameIntervalKey];
-    [compressionProperties setObject:AVVideoProfileLevelH264Main31 forKey:AVVideoProfileLevelKey];
-    
-    [outputSettings setObject:compressionProperties forKey:AVVideoCompressionPropertiesKey];
-    */
+     NSDictionary *videoCleanApertureSettings = [NSDictionary dictionaryWithObjectsAndKeys:
+     [NSNumber numberWithInt:videoSize.width], AVVideoCleanApertureWidthKey,
+     [NSNumber numberWithInt:videoSize.height], AVVideoCleanApertureHeightKey,
+     [NSNumber numberWithInt:0], AVVideoCleanApertureHorizontalOffsetKey,
+     [NSNumber numberWithInt:0], AVVideoCleanApertureVerticalOffsetKey,
+     nil];
      
-    assetWriterVideoInput = [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeVideo outputSettings:outputSettings];
+     NSDictionary *videoAspectRatioSettings = [NSDictionary dictionaryWithObjectsAndKeys:
+     [NSNumber numberWithInt:3], AVVideoPixelAspectRatioHorizontalSpacingKey,
+     [NSNumber numberWithInt:3], AVVideoPixelAspectRatioVerticalSpacingKey,
+     nil];
+     
+     NSMutableDictionary * compressionProperties = [[NSMutableDictionary alloc] init];
+     [compressionProperties setObject:videoCleanApertureSettings forKey:AVVideoCleanApertureKey];
+     [compressionProperties setObject:videoAspectRatioSettings forKey:AVVideoPixelAspectRatioKey];
+     [compressionProperties setObject:[NSNumber numberWithInt: 2000000] forKey:AVVideoAverageBitRateKey];
+     [compressionProperties setObject:[NSNumber numberWithInt: 16] forKey:AVVideoMaxKeyFrameIntervalKey];
+     [compressionProperties setObject:AVVideoProfileLevelH264Main31 forKey:AVVideoProfileLevelKey];
+     
+     [outputSettings setObject:compressionProperties forKey:AVVideoCompressionPropertiesKey];
+     */
+    
+    if (sourceHint != NULL && [AVAssetWriterInput instancesRespondToSelector:@selector(initWithMediaType:outputSettings:sourceFormatHint:)])
+    {
+        assetWriterVideoInput = [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeVideo outputSettings:outputSettings sourceFormatHint:sourceHint];
+    }
+    else
+    {
+        assetWriterVideoInput = [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeVideo outputSettings:outputSettings];
+    }
+    
     assetWriterVideoInput.expectsMediaDataInRealTime = _encodingLiveVideo;
     
     // You need to use BGRA for the video in order to get realtime encoding. I use a color-swizzling shader to line up glReadPixels' normal RGBA output with the movie input's BGRA.
@@ -225,12 +238,17 @@ NSString *const kGPUImageColorSwizzlingFragmentShaderString = SHADER_STRING
                                                            [NSNumber numberWithInt:videoSize.width], kCVPixelBufferWidthKey,
                                                            [NSNumber numberWithInt:videoSize.height], kCVPixelBufferHeightKey,
                                                            nil];
-//    NSDictionary *sourcePixelBufferAttributesDictionary = [NSDictionary dictionaryWithObjectsAndKeys: [NSNumber numberWithInt:kCVPixelFormatType_32ARGB], kCVPixelBufferPixelFormatTypeKey,
-//                                                           nil];
-        
+    //    NSDictionary *sourcePixelBufferAttributesDictionary = [NSDictionary dictionaryWithObjectsAndKeys: [NSNumber numberWithInt:kCVPixelFormatType_32ARGB], kCVPixelBufferPixelFormatTypeKey,
+    //                                                           nil];
+    
     assetWriterPixelBufferInput = [AVAssetWriterInputPixelBufferAdaptor assetWriterInputPixelBufferAdaptorWithAssetWriterInput:assetWriterVideoInput sourcePixelBufferAttributes:sourcePixelBufferAttributesDictionary];
     
     [assetWriter addInput:assetWriterVideoInput];
+}
+
+- (void)initializeMovieWithOutputSettings:(NSMutableDictionary *)outputSettings;
+{
+    [self initializeMovieWithOutputSettings:outputSettings sourceFormatHint:NULL];
 }
 
 - (void)startRecording;

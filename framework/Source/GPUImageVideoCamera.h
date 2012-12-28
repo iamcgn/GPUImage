@@ -61,6 +61,12 @@
 /// These properties determine whether or not the two camera orientations should be mirrored. By default, both are NO.
 @property(readwrite, nonatomic) BOOL horizontallyMirrorFrontFacingCamera, horizontallyMirrorRearFacingCamera;
 
+/// Used by iOS 6 to setup setup AVAssetWriterInput with expected video format. Prevents initial frame loss.
+/**
+ Should be passed to GPUImageMovieWriter to ininitialize AVAssetWriterInput with hints
+ */
+@property(readwrite, nonatomic) CMFormatDescriptionRef videoFormatDescription;
+
 @property(nonatomic, assign) id<GPUImageVideoCameraDelegate> delegate;
 
 /// @name Initialization and teardown
